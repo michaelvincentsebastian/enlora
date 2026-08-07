@@ -1,0 +1,61 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: metadata-databases
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: object-storage
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - ./data/minio:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  platform-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: enlora-platform-api
+    env_file: .env
+    environment:
+      # Override localhost → container hostnames for Docker networking
+      PG_HOST: postgres
+      MINIO_ENDPOINT: minio:9000
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: >
+      uvicorn enlora_platform.api.main:app
+      --host 0.0.0.0
+      --port 8001
+      --reload
